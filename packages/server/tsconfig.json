@@ -1,0 +1,15 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "rootDir": "src",
+    "module": "NodeNext",
+    "moduleResolution": "nodenext",
+    "types": ["node"]
+  },
+  // @gme/shared is consumed as a built project, not as loose sources, so its
+  // files stay out of this package's rootDir.
+  "references": [{ "path": "../shared" }],
+  "include": ["src/**/*"],
+  "exclude": ["src/**/*.test.ts"]
+}

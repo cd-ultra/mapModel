@@ -1,0 +1,41 @@
+# Local dependencies for development. Neither is required to run the app —
+# without them the server falls back to an in-memory repository and local disk
+# storage — but both are needed to exercise the real persistence path.
+services:
+  postgres:
+    image: postgis/postgis:16-3.4
+    environment:
+      POSTGRES_USER: gme
+      POSTGRES_PASSWORD: gme
+      POSTGRES_DB: gme
+    ports:
+      - '5432:5432'
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U gme -d gme']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # S3-compatible storage, so the S3 driver can be tested without an AWS account.
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - '9000:9000'
+      - '9001:9001'
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ['CMD', 'mc', 'ready', 'local']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  postgres-data:
+  minio-data:

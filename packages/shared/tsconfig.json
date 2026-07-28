@@ -1,0 +1,16 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "rootDir": "src",
+    // Composite so dependent packages can reference this project instead of
+    // pulling its sources into their own rootDir.
+    "composite": true,
+    // Keep the incremental build state inside dist. Left at its default it
+    // sits beside tsconfig.json, so `rm -rf dist` would leave tsc convinced
+    // the build was current and it would emit nothing at all.
+    "tsBuildInfoFile": "dist/.tsbuildinfo"
+  },
+  "include": ["src/**/*"],
+  "exclude": ["src/**/*.test.ts"]
+}

@@ -1,0 +1,25 @@
+{
+  "name": "geo-model-editor",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/shared",
+    "packages/web",
+    "packages/server"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "npm run build -w @gme/shared && npm run build -w @gme/server && npm run build -w @gme/web",
+    "dev": "npm run dev -w @gme/web",
+    "dev:server": "npm run dev -w @gme/server",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "lint": "npm run typecheck"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3"
+  }
+}
