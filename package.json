@@ -15,11 +15,13 @@
     "build": "npm run build -w @gme/shared && npm run build -w @gme/server && npm run build -w @gme/web",
     "dev": "npm run dev -w @gme/web",
     "dev:server": "npm run dev -w @gme/server",
-    "typecheck": "npm run typecheck --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present && tsc -p tsconfig.json",
     "test": "npm run test --workspaces --if-present",
     "lint": "npm run typecheck"
   },
   "devDependencies": {
+    "@types/node": "^26.1.2",
+    "@types/pg": "^8.11.10",
     "typescript": "^5.9.3"
   }
 }

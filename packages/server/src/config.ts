@@ -32,6 +32,8 @@ export interface ServerConfig {
   };
   /** When false, requests are attributed to an anonymous development user. */
   authRequired: boolean;
+  /** HS256 signing secret for bearer tokens. Null means no token can verify. */
+  jwtSecret: string | null;
 }
 
 function envInt(name: string, fallback: number): number {
@@ -74,5 +76,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
       publicBaseUrl: env['STORAGE_PUBLIC_BASE_URL'] ?? null,
     },
     authRequired: env['AUTH_REQUIRED'] === 'true',
+    jwtSecret: env['JWT_SECRET'] ?? null,
   };
 }
