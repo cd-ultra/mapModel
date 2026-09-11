@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
   OverpassParseError,
+  buildOverpassBboxQuery,
   buildOverpassQuery,
+  parseOverpassAreaFootprints,
   parseOverpassFootprint,
   stitchRings,
 } from './overpass.js';
@@ -274,5 +276,57 @@ describe('parseOverpassFootprint', () => {
         REL,
       ),
     ).toThrow(/no closed outer ring/);
+  });
+});
+
+describe('buildOverpassBboxQuery', () => {
+  it('builds a query scoped to tagged buildings within the box', () => {
+    const query = buildOverpassBboxQuery({ west: -1, south: -2, east: 3, north: 4 });
+    expect(query).toContain('way["building"](-2,-1,4,3)');
+    expect(query).toContain('relation["building"](-2,-1,4,3)');
+    expect(query).toContain('out geom tags;');
+  });
+
+  it('rejects an inverted box', () => {
+    expect(() =>
+      buildOverpassBboxQuery({ west: 3, south: -2, east: -1, north: 4 }),
+    ).toThrow(/Invalid bounding box/);
+  });
+});
+
+describe('parseOverpassAreaFootprints', () => {
+  const SECOND_WAY: OsmRef = { id: 24950832, type: 'way' };
+
+  it('parses every element in the response', () => {
+    const results = parseOverpassAreaFootprints({
+      elements: [
+        { type: 'way', id: WAY.id, tags: { building: 'yes', height: '30' }, geometry: SQUARE },
+        { type: 'way', id: SECOND_WAY.id, tags: { building: 'yes', height: '12' }, geometry: SQUARE },
+      ],
+    });
+
+    expect(results).toHaveLength(2);
+    expect(results.map((r) => r.footprint.osm.id)).toEqual([WAY.id, SECOND_WAY.id]);
+    expect(results[1]!.footprint.heightMeters).toBeCloseTo(12);
+  });
+
+  it('skips a malformed element instead of throwing', () => {
+    const results = parseOverpassAreaFootprints({
+      elements: [
+        // Degenerate way: fewer than 3 points, cannot form a ring.
+        { type: 'way', id: WAY.id, geometry: [{ lon: 0, lat: 0 }] },
+        { type: 'way', id: SECOND_WAY.id, tags: { building: 'yes' }, geometry: SQUARE },
+      ],
+    });
+
+    expect(results).toHaveLength(1);
+    expect(results[0]!.footprint.osm.id).toBe(SECOND_WAY.id);
+  });
+
+  it('ignores non-building elements Overpass might still echo back', () => {
+    const results = parseOverpassAreaFootprints({
+      elements: [{ type: 'node', id: 1 } as never],
+    });
+    expect(results).toHaveLength(0);
   });
 });

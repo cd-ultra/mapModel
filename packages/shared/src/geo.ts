@@ -11,7 +11,7 @@
  * do the real ellipsoidal transform instead — it is only a few more lines.
  */
 
-import type { LonLat, LonLatAlt } from './types.js';
+import type { BboxDegrees, LonLat, LonLatAlt } from './types.js';
 
 /** WGS84 semi-major axis, metres. */
 export const WGS84_A = 6378137.0;
@@ -213,6 +213,20 @@ export function ringCentroid(
 
   const factor = 1 / (3 * twiceArea);
   return [ox + cx * factor, oy + cy * factor];
+}
+
+/**
+ * A square bounding box of the given half-width, centred on `center`.
+ *
+ * Goes through the same ENU frame as everything else here rather than a
+ * degrees-per-metre approximation, so it stays exact at any latitude,
+ * including the convergence near the poles.
+ */
+export function bboxAroundPoint(center: LonLatAlt, halfWidthMeters: number): BboxDegrees {
+  const frame = new EnuFrame(center);
+  const sw = frame.toGeodetic([-halfWidthMeters, -halfWidthMeters, 0]);
+  const ne = frame.toGeodetic([halfWidthMeters, halfWidthMeters, 0]);
+  return { west: sw.lon, south: sw.lat, east: ne.lon, north: ne.lat };
 }
 
 /** Drop a ring's duplicated closing vertex, if present. */

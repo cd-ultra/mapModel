@@ -3,6 +3,7 @@ import { OSM_ATTRIBUTION } from '@gme/shared';
 import { GlobeView } from './globe/GlobeView.js';
 import { EditorView, type GizmoMode } from './editor/EditorView.js';
 import {
+  BlockPanel,
   ExtractionPanel,
   PlacementPanel,
   SlicePanel,
@@ -64,6 +65,12 @@ export default function App() {
           >
             3 · Place
           </button>
+          <button
+            className={mode === 'block' ? 'active' : ''}
+            onClick={() => setMode('block')}
+          >
+            Block model
+          </button>
         </nav>
 
         <div className="topbar-actions">
@@ -80,6 +87,10 @@ export default function App() {
         {/* Both views stay mounted: rebuilding the Cesium viewer or the WebGL
             editor context on every mode switch is slow and loses camera state. */}
         <div className="stage" data-active={mode === 'edit' ? 'editor' : 'globe'}>
+          {/* Block mode still picks on the Cesium globe (centre, then a
+              building to single out); the block preview lives in the
+              sidebar instead of taking over the stage, since the globe is
+              how the user keeps interacting while it's open. */}
           <div className="layer" data-visible={mode !== 'edit'}>
             <GlobeView />
           </div>
@@ -93,10 +104,16 @@ export default function App() {
         </div>
 
         <aside className="sidebar">
-          <ExtractionPanel />
-          <TransformPanel gizmo={gizmo} onGizmoChange={setGizmo} />
-          <SlicePanel />
-          <PlacementPanel />
+          {mode === 'block' ? (
+            <BlockPanel />
+          ) : (
+            <>
+              <ExtractionPanel />
+              <TransformPanel gizmo={gizmo} onGizmoChange={setGizmo} />
+              <SlicePanel />
+              <PlacementPanel />
+            </>
+          )}
         </aside>
       </main>
 
@@ -123,6 +140,8 @@ function readyMessage(mode: string): string {
       return 'Scale, rotate, and slice the extracted mesh.';
     case 'place':
       return 'Click the globe to choose where the model goes.';
+    case 'block':
+      return 'Click the globe to centre a block, then click a building to single it out.';
     default:
       return '';
   }

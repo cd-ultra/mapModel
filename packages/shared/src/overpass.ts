@@ -10,8 +10,10 @@
 import { EnuFrame, openRing, ringCentroid, signedArea } from './geo.js';
 import { resolveHeight } from './height.js';
 import type {
+  BboxDegrees,
   BuildingFootprint,
   FootprintResponse,
+  HeightSource,
   LonLat,
   OsmRef,
 } from './types.js';
@@ -30,6 +32,26 @@ export function buildOverpassQuery(ref: OsmRef, timeoutSeconds = 25): string {
   }
   const selector = ref.type === 'relation' ? 'relation' : 'way';
   return `[out:json][timeout:${timeoutSeconds}];${selector}(${ref.id});out geom tags;`;
+}
+
+/**
+ * Query every tagged building within a bounding box — the "block model" path,
+ * which extracts a whole neighbourhood instead of one picked building. Scoped
+ * to `building`/`building:part` so the result is not swamped by roads, trees,
+ * and address nodes that also happen to fall inside the box.
+ */
+export function buildOverpassBboxQuery(bbox: BboxDegrees, timeoutSeconds = 60): string {
+  if (bbox.south >= bbox.north || bbox.west >= bbox.east) {
+    throw new Error(
+      `Invalid bounding box: south/west must be less than north/east (got ${JSON.stringify(bbox)})`,
+    );
+  }
+  const box = `${bbox.south},${bbox.west},${bbox.north},${bbox.east}`;
+  return (
+    `[out:json][timeout:${timeoutSeconds}];` +
+    `(way["building"](${box});relation["building"](${box}););` +
+    `out geom tags;`
+  );
 }
 
 interface OverpassPoint {
@@ -207,27 +229,16 @@ export interface ParseOptions {
 }
 
 /**
- * Turn a raw Overpass JSON response into a footprint ready for extrusion.
- *
- * Multipolygon relations may legitimately contain several disjoint outer rings
- * (a building split by a courtyard passage, say). The editor works on one mesh
- * at a time, so the largest outer ring wins and its holes come along; the rest
- * are reported in `droppedOuterRings` rather than silently discarded.
+ * Footprint extraction shared by the single-building and area queries:
+ * pick the largest outer ring, centre a frame on it, orient rings, resolve
+ * height. Kept element-scoped (no response-wide lookup) so it serves both a
+ * single matched element and a bulk area scan.
  */
-export function parseOverpassFootprint(
-  response: OverpassResponse,
+function footprintFromElement(
+  element: OverpassElement,
   ref: OsmRef,
-  options: ParseOptions = {},
+  options: ParseOptions,
 ): FootprintResponse & { droppedOuterRings: number } {
-  const elements = response.elements ?? [];
-  const element = elements.find((e) => e.id === ref.id && e.type === ref.type);
-
-  if (!element) {
-    throw new OverpassParseError(
-      `Overpass returned no ${ref.type} with id ${ref.id}. The building may have been edited or deleted in OSM since the Cesium tileset was built.`,
-    );
-  }
-
   const { outer, inner } = extractRings(element);
 
   // Provisional frame anchored on the first ring, used only for area ranking
@@ -271,4 +282,68 @@ export function parseOverpassFootprint(
     attribution: OSM_ATTRIBUTION,
     droppedOuterRings: outer.length - 1,
   };
+}
+
+/**
+ * Turn a raw Overpass JSON response into a footprint ready for extrusion.
+ *
+ * Multipolygon relations may legitimately contain several disjoint outer rings
+ * (a building split by a courtyard passage, say). The editor works on one mesh
+ * at a time, so the largest outer ring wins and its holes come along; the rest
+ * are reported in `droppedOuterRings` rather than silently discarded.
+ */
+export function parseOverpassFootprint(
+  response: OverpassResponse,
+  ref: OsmRef,
+  options: ParseOptions = {},
+): FootprintResponse & { droppedOuterRings: number } {
+  const elements = response.elements ?? [];
+  const element = elements.find((e) => e.id === ref.id && e.type === ref.type);
+
+  if (!element) {
+    throw new OverpassParseError(
+      `Overpass returned no ${ref.type} with id ${ref.id}. The building may have been edited or deleted in OSM since the Cesium tileset was built.`,
+    );
+  }
+
+  return footprintFromElement(element, ref, options);
+}
+
+export interface AreaFootprint {
+  footprint: BuildingFootprint;
+  heightSource: HeightSource;
+}
+
+/**
+ * Turn a bbox Overpass response into every footprint that parsed cleanly.
+ *
+ * Unlike `parseOverpassFootprint`, a bad element here (a relation with no
+ * closed outer ring, a way OSM has since deleted) should not sink the whole
+ * area — it is one building out of a block, so it is skipped rather than
+ * thrown. Each footprint keeps its own centroid-anchored `origin`, exactly
+ * like a single-building extraction, so `buildExtrusion` works unchanged;
+ * callers that need every building in one shared frame (the block model)
+ * reproject at mesh-build time.
+ */
+export function parseOverpassAreaFootprints(
+  response: OverpassResponse,
+  options: ParseOptions = {},
+): AreaFootprint[] {
+  const elements = response.elements ?? [];
+  const results: AreaFootprint[] = [];
+
+  for (const element of elements) {
+    if (element.type !== 'way' && element.type !== 'relation') continue;
+    const ref: OsmRef = { id: element.id, type: element.type };
+
+    try {
+      const { footprint, heightSource } = footprintFromElement(element, ref, options);
+      results.push({ footprint, heightSource });
+    } catch {
+      // One malformed element should not sink the rest of the block.
+      continue;
+    }
+  }
+
+  return results;
 }

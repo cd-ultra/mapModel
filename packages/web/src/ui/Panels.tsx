@@ -11,6 +11,9 @@ import { Euler, Quaternion } from 'three';
 import type { Placement } from '@gme/shared';
 import { useAppStore } from '../state/store.js';
 import { buildExportScene, downloadGlb, exportGlb } from '../mesh/exportGlb.js';
+import { buildBlockMesh } from '../mesh/buildBlockMesh.js';
+import { downloadStl, exportStl } from '../mesh/exportStl.js';
+import { BlockView } from '../editor/BlockView.js';
 import type { GizmoMode } from '../editor/EditorView.js';
 import { ApiClient } from '../api/client.js';
 import { config } from '../config.js';
@@ -475,6 +478,141 @@ export function PlacementPanel() {
             ))}
           </ul>
         </>
+      ) : null}
+    </section>
+  );
+}
+
+/**
+ * The block-model workflow: pick an area, single out one building in it, and
+ * export a printable model — a base plate plus every building, the singled-
+ * out one split into its own STL so it can be printed in a different colour
+ * or material from the rest of the block.
+ */
+export function BlockPanel() {
+  const block = useAppStore((s) => s.block);
+  const setBlockRadius = useAppStore((s) => s.setBlockRadius);
+  const setBlockCenter = useAppStore((s) => s.setBlockCenter);
+  const setHighlightBuilding = useAppStore((s) => s.setHighlightBuilding);
+  const clearBlock = useAppStore((s) => s.clearBlock);
+  const setStatus = useAppStore((s) => s.setStatus);
+
+  const [busy, setBusy] = useState(false);
+
+  const highlighted = block.footprints.find(
+    (f) =>
+      block.highlightOsm &&
+      f.osm.type === block.highlightOsm.type &&
+      f.osm.id === block.highlightOsm.id,
+  );
+
+  const exportBlock = (kind: 'highlight-stl' | 'rest-stl' | 'glb') => {
+    if (!block.center || block.footprints.length === 0) return;
+    setBusy(true);
+    try {
+      const mesh = buildBlockMesh(block.footprints, block.center, block.highlightOsm);
+      const base = `block-${block.center.lat.toFixed(4)}-${block.center.lon.toFixed(4)}`;
+
+      if (kind === 'highlight-stl') {
+        if (!mesh.highlighted) {
+          setStatus({ kind: 'info', text: 'Click a building on the globe to single it out first.' });
+          return;
+        }
+        downloadStl(exportStl(mesh.highlighted), `${base}-highlight`);
+      } else if (kind === 'rest-stl') {
+        downloadStl(exportStl(mesh.rest), `${base}-block`);
+      } else {
+        void exportGlb(mesh.preview).then((glb) => downloadGlb(glb, base));
+      }
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <section className="panel">
+      <h2>Block model</h2>
+      <p className="hint">
+        Click the globe to centre a block, then click one building in it to single that
+        building out. Export gives you two STL files — the highlighted building and the
+        rest of the block — so a printer can run them in different colours.
+      </p>
+
+      <label className="axis-row">
+        <span>Radius (m)</span>
+        <input
+          type="number"
+          step="10"
+          min="20"
+          max="500"
+          value={block.radiusM}
+          onChange={(e) => {
+            const value = Number(e.target.value);
+            if (!Number.isFinite(value) || value <= 0) return;
+            setBlockRadius(value);
+            if (block.center) void setBlockCenter(block.center);
+          }}
+        />
+      </label>
+
+      {block.center ? (
+        <dl className="facts">
+          <dt>Centre</dt>
+          <dd>
+            {block.center.lat.toFixed(5)}, {block.center.lon.toFixed(5)}
+          </dd>
+          <dt>Buildings</dt>
+          <dd>{block.footprints.length}</dd>
+          <dt>Singled out</dt>
+          <dd>
+            {highlighted
+              ? highlighted.tags['name'] ?? `${highlighted.osm.type}/${highlighted.osm.id}`
+              : 'none yet'}
+          </dd>
+        </dl>
+      ) : (
+        <p className="hint">No area picked yet.</p>
+      )}
+
+      {block.center && block.footprints.length > 0 ? (
+        <div className="block-preview">
+          <BlockView />
+        </div>
+      ) : null}
+
+      {block.highlightOsm ? (
+        <button className="link" onClick={() => setHighlightBuilding(null)}>
+          Clear singled-out building
+        </button>
+      ) : null}
+
+      <div className="button-row">
+        <button
+          onClick={() => exportBlock('highlight-stl')}
+          disabled={busy || !block.highlightOsm}
+        >
+          Export highlighted (STL)
+        </button>
+        <button
+          className="secondary"
+          onClick={() => exportBlock('rest-stl')}
+          disabled={busy || block.footprints.length === 0}
+        >
+          Export block (STL)
+        </button>
+      </div>
+      <button
+        className="secondary"
+        onClick={() => exportBlock('glb')}
+        disabled={busy || block.footprints.length === 0}
+      >
+        Export preview (GLB)
+      </button>
+
+      {block.center ? (
+        <button className="secondary" onClick={clearBlock}>
+          Clear block
+        </button>
       ) : null}
     </section>
   );

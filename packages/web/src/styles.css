@@ -90,6 +90,14 @@ body {
   height: 100%;
 }
 
+.block-preview {
+  position: relative;
+  width: 100%;
+  height: 220px;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
 .empty {
   display: grid;
   place-items: center;

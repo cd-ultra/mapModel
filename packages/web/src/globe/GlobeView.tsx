@@ -114,7 +114,7 @@ export function GlobeView() {
     const handler = new ScreenSpaceEventHandler(viewer.scene.canvas);
 
     handler.setInputAction((movement: { endPosition: { x: number; y: number } }) => {
-      if (modeRef.current !== 'select') return;
+      if (modeRef.current !== 'select' && modeRef.current !== 'block') return;
 
       // Restore the previously hovered building before highlighting a new one.
       if (hoveredRef.current) {
@@ -134,6 +134,10 @@ export function GlobeView() {
 
       if (currentMode === 'place') {
         handleDestinationClick(viewer.scene, click.position);
+        return;
+      }
+      if (currentMode === 'block') {
+        handleBlockClick(viewer.scene, click.position);
         return;
       }
       if (currentMode !== 'select') return;
@@ -243,6 +247,47 @@ async function addPlacedModel(
   } finally {
     URL.revokeObjectURL(url);
   }
+}
+
+/**
+ * A click in block mode does one of two things, disambiguated by what got
+ * picked: hitting a building tile singles that building out (reusing the same
+ * `readTileFeature` path as `select` mode), hitting bare terrain re-centres
+ * the block area there. This mirrors `select`/`place` mode's own click
+ * handling rather than introducing a second, separate interaction to draw a
+ * rectangle.
+ */
+function handleBlockClick(scene: Scene, position: { x: number; y: number }): void {
+  const store = useAppStore.getState();
+  const picked: unknown = scene.pick(position as never);
+
+  if (picked instanceof Cesium3DTileFeature) {
+    const reading = readTileFeature(picked);
+    if (!reading.ref) {
+      store.setStatus({
+        kind: 'error',
+        text: reading.problem ?? 'This building carries no OSM id.',
+      });
+      return;
+    }
+    store.setHighlightBuilding(reading.ref);
+    store.setStatus({
+      kind: 'info',
+      text: `Singled out ${reading.ref.type} ${reading.ref.id}.`,
+    });
+    return;
+  }
+
+  const ground = pickGroundPosition(scene, position);
+  if (!ground) {
+    store.setStatus({
+      kind: 'info',
+      text: 'Could not resolve that click to a point on the globe. Try clicking on terrain.',
+    });
+    return;
+  }
+
+  void store.setBlockCenter(ground);
 }
 
 /** Resolve a destination click to a georeferenced placement. */
