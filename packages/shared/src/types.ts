@@ -16,6 +16,14 @@ export interface LonLatAlt {
   alt: number;
 }
 
+/** A WGS84 bounding box in degrees. */
+export interface BboxDegrees {
+  west: number;
+  south: number;
+  east: number;
+  north: number;
+}
+
 /** The OSM element a building tile feature came from. */
 export interface OsmRef {
   /** OSM element id, e.g. 24950831. */

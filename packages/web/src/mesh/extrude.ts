@@ -145,9 +145,16 @@ function toThree(east: number, north: number, up: number): [number, number, numb
 /**
  * Build a watertight solid from a footprint: a triangulated floor and roof
  * joined by vertical walls around every ring.
+ *
+ * `frame` defaults to one centred on the footprint itself (the single-building
+ * extract/edit/place path). The block-model path passes a frame shared across
+ * every building in an area instead, so every extrusion lands in one
+ * consistent local space rather than each being centred on its own centroid.
  */
-export function buildExtrusion(footprint: BuildingFootprint): ExtrusionResult {
-  const frame = new EnuFrame(footprint.origin);
+export function buildExtrusion(
+  footprint: BuildingFootprint,
+  frame: EnuFrame = new EnuFrame(footprint.origin),
+): ExtrusionResult {
   const rings = normaliseWinding(projectRings(footprint, frame));
 
   const base = footprint.minHeightMeters;

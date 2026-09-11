@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   EnuFrame,
   WGS84_A,
+  bboxAroundPoint,
   ecefToGeodetic,
   geodeticToEcef,
   openRing,
@@ -149,5 +150,30 @@ describe('ring helpers', () => {
   it('drops a duplicated closing vertex', () => {
     expect(openRing([[0, 0] as const, [1, 0] as const, [0, 0] as const])).toHaveLength(2);
     expect(openRing([[0, 0] as const, [1, 0] as const])).toHaveLength(2);
+  });
+});
+
+describe('bboxAroundPoint', () => {
+  it('produces a box whose corners are the requested distance from the centre', () => {
+    const center = { lon: -122.4194, lat: 37.7749, alt: 0 };
+    const bbox = bboxAroundPoint(center, 100);
+    const frame = new EnuFrame(center);
+
+    const sw = frame.toEnu({ lon: bbox.west, lat: bbox.south, alt: 0 });
+    const ne = frame.toEnu({ lon: bbox.east, lat: bbox.north, alt: 0 });
+
+    expect(sw[0]).toBeCloseTo(-100, 3);
+    expect(sw[1]).toBeCloseTo(-100, 3);
+    expect(ne[0]).toBeCloseTo(100, 3);
+    expect(ne[1]).toBeCloseTo(100, 3);
+  });
+
+  it('stays centred on the point even at high latitude', () => {
+    const center = { lon: 18.0686, lat: 59.3293, alt: 0 };
+    const bbox = bboxAroundPoint(center, 250);
+    expect(bbox.west).toBeLessThan(center.lon);
+    expect(bbox.east).toBeGreaterThan(center.lon);
+    expect(bbox.south).toBeLessThan(center.lat);
+    expect(bbox.north).toBeGreaterThan(center.lat);
   });
 });

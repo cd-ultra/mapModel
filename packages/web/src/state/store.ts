@@ -17,12 +17,14 @@ import type {
   BuildingFootprint,
   EditState,
   HeightSource,
+  LonLatAlt,
   OsmRef,
   Placement,
 } from '@gme/shared';
-import { OSM_ATTRIBUTION } from '@gme/shared';
+import { OSM_ATTRIBUTION, bboxAroundPoint } from '@gme/shared';
 import { config } from '../config.js';
 import { createFootprintSource, type FootprintSource } from '../osm/footprintSource.js';
+import { fetchAreaFootprints } from '../osm/areaFootprintSource.js';
 import { buildExtrusion } from '../mesh/extrude.js';
 import { operationFromWidget, replayOperations } from '../editor/csg.js';
 import {
@@ -36,7 +38,7 @@ import {
   type HistoryState,
 } from '../editor/history.js';
 
-export type Mode = 'select' | 'edit' | 'place';
+export type Mode = 'select' | 'edit' | 'place' | 'block';
 
 export interface StatusMessage {
   kind: 'idle' | 'busy' | 'error' | 'info';
@@ -70,6 +72,21 @@ export interface PlacedModel {
   sourceOsm: OsmRef;
 }
 
+/** State for the "block model" workflow: an area of buildings with one singled out. */
+export interface BlockState {
+  center: LonLatAlt | null;
+  radiusM: number;
+  footprints: BuildingFootprint[];
+  highlightOsm: OsmRef | null;
+}
+
+const DEFAULT_BLOCK: BlockState = {
+  center: null,
+  radiusM: 120,
+  footprints: [],
+  highlightOsm: null,
+};
+
 const IDENTITY_EDIT: EditState = {
   transform: { scale: [1, 1, 1], quaternion: [0, 0, 0, 1] },
   operations: [],
@@ -98,6 +115,8 @@ interface AppState {
   placement: Placement;
   placedModels: PlacedModel[];
 
+  block: BlockState;
+
   // Derived helpers, kept as plain functions for component convenience.
   canUndo: () => boolean;
   canRedo: () => boolean;
@@ -122,6 +141,11 @@ interface AppState {
   setPlacement: (patch: Partial<Placement>) => void;
   addPlacedModel: (model: PlacedModel) => void;
   removePlacedModel: (id: string) => void;
+
+  setBlockRadius: (radiusM: number) => void;
+  setBlockCenter: (center: LonLatAlt) => Promise<void>;
+  setHighlightBuilding: (ref: OsmRef | null) => void;
+  clearBlock: () => void;
 }
 
 let footprintSource: FootprintSource | null = null;
@@ -190,6 +214,8 @@ export const useAppStore = create<AppState>((set, get) => {
       clampToTerrain: true,
     },
     placedModels: [],
+
+    block: DEFAULT_BLOCK,
 
     canUndo: () => historyCanUndo(get().editHistory),
     canRedo: () => historyCanRedo(get().editHistory),
@@ -359,5 +385,45 @@ export const useAppStore = create<AppState>((set, get) => {
 
     removePlacedModel: (id) =>
       set({ placedModels: get().placedModels.filter((m) => m.id !== id) }),
+
+    setBlockRadius: (radiusM) => set({ block: { ...get().block, radiusM } }),
+
+    /**
+     * Re-centre the block area and refetch every building footprint inside
+     * it. Any building highlighted under the old centre is dropped — it is
+     * likely no longer even in view.
+     */
+    setBlockCenter: async (center) => {
+      const radiusM = get().block.radiusM;
+      set({
+        block: { ...get().block, center, footprints: [], highlightOsm: null },
+        status: { kind: 'busy', text: `Fetching buildings within ${radiusM} m…` },
+      });
+
+      try {
+        const bbox = bboxAroundPoint(center, radiusM);
+        const results = await fetchAreaFootprints({ bbox });
+        const footprints = results.map((r) => r.footprint);
+
+        set({
+          block: { ...get().block, footprints },
+          status: {
+            kind: 'info',
+            text: `Found ${footprints.length} building${footprints.length === 1 ? '' : 's'} — click one to single it out.`,
+          },
+        });
+      } catch (error) {
+        set({
+          status: {
+            kind: 'error',
+            text: error instanceof Error ? error.message : 'Area lookup failed',
+          },
+        });
+      }
+    },
+
+    setHighlightBuilding: (ref) => set({ block: { ...get().block, highlightOsm: ref } }),
+
+    clearBlock: () => set({ block: DEFAULT_BLOCK }),
   };
 });
