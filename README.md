@@ -40,6 +40,26 @@ npm run dev:server                         # :8787
 Then set `VITE_API_BASE_URL` in `packages/web/.env` so the client uses the
 cached footprint proxy and gains a "Save to my library" button.
 
+## Deploying (Vercel)
+
+`vercel.json` builds the whole workspace (`npm run build`) and serves
+`packages/web/dist` as the static site, with the Express API lifted into a
+single serverless function at `api/[...path].ts` — same origin as the
+frontend, so no CORS setup is needed. Required environment variables on the
+Vercel project:
+
+| Variable | Purpose |
+|---|---|
+| `VITE_API_BASE_URL` | Set to `/` so the web build talks to the same-origin API instead of running in no-backend mode. |
+| `AUTH_REQUIRED` | Must be `true` — the server refuses to boot under `NODE_ENV=production` (which Vercel sets) otherwise. |
+| `JWT_SECRET` | Shared HS256 secret for bearer tokens (see `src/auth/jwtVerifier.ts`). Required whenever `AUTH_REQUIRED=true`. Mint a token with `JWT_SECRET=... npm run mint-token -w @gme/server -- <userId>`. |
+| `DATABASE_URL` | Postgres/PostGIS connection string. Omit only for a throwaway deployment — the in-memory repository does not survive a cold start on serverless. |
+| `S3_BUCKET`, `S3_REGION`, `S3_ENDPOINT`, `STORAGE_PUBLIC_BASE_URL` | Object storage for exported GLBs. The `local` disk driver is not viable on serverless (ephemeral, no shared filesystem across instances) — configure S3/R2/MinIO for any real deployment. |
+
+`src/auth/jwtVerifier.ts` is a stopgap: real multi-user auth still means
+swapping `verifyToken` for Auth.js/Clerk/etc, per the seam in
+`src/auth/middleware.ts`.
+
 ## Layout
 
 | Package | What it is |

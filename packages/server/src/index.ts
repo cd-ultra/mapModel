@@ -2,37 +2,14 @@
  * Server entrypoint: resolve dependencies from the environment and listen.
  */
 
-import { Pool } from 'pg';
 import { createApp } from './app.js';
-import { loadConfig } from './config.js';
-import { MemoryRepository, PostgresRepository, type Repository } from './db/repository.js';
-import { OverpassClient } from './osm/overpassClient.js';
-import { createStorage } from './storage/index.js';
+import { bootstrap } from './bootstrap.js';
 
-const config = loadConfig();
+const { pool, ...deps } = bootstrap();
+const app = createApp(deps);
 
-let repository: Repository;
-let pool: Pool | null = null;
-
-if (config.databaseUrl) {
-  pool = new Pool({ connectionString: config.databaseUrl });
-  repository = new PostgresRepository(pool);
-} else {
-  console.warn(
-    'DATABASE_URL is not set — using the in-memory repository. Data will not survive a restart.',
-  );
-  repository = new MemoryRepository();
-}
-
-const app = createApp({
-  config,
-  repository,
-  storage: createStorage(config),
-  overpass: new OverpassClient(config.overpass),
-});
-
-const server = app.listen(config.port, () => {
-  console.log(`geo-model-editor API listening on :${config.port}`);
+const server = app.listen(deps.config.port, () => {
+  console.log(`geo-model-editor API listening on :${deps.config.port}`);
 });
 
 /** Drain in-flight requests before exiting so a deploy does not drop them. */
