@@ -21,8 +21,12 @@ export interface ServerConfig {
     timeoutMs: number;
   };
   storage: {
-    /** 's3' when a bucket is configured, otherwise local disk. */
-    driver: 's3' | 'local';
+    /**
+     * 's3' when a bucket is configured, 'blob' when a Vercel Blob store is
+     * connected (BLOB_READ_WRITE_TOKEN is injected automatically), otherwise
+     * local disk.
+     */
+    driver: 's3' | 'blob' | 'local';
     bucket: string | null;
     region: string | null;
     endpoint: string | null;
@@ -68,7 +72,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
       timeoutMs: envInt('OVERPASS_TIMEOUT_MS', 30_000),
     },
     storage: {
-      driver: bucket ? 's3' : 'local',
+      driver: bucket ? 's3' : env['BLOB_READ_WRITE_TOKEN'] ? 'blob' : 'local',
       bucket,
       region: env['S3_REGION'] ?? null,
       endpoint: env['S3_ENDPOINT'] ?? null,

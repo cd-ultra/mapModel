@@ -1,9 +1,10 @@
 /**
  * Object storage for generated GLB assets.
  *
- * Two drivers behind one interface: S3-compatible (S3, R2, MinIO) for
- * deployment, and local disk so a developer can run the whole pipeline without
- * standing up a bucket. The route layer never knows which is active.
+ * Three drivers behind one interface: S3-compatible (S3, R2, MinIO) or Vercel
+ * Blob for deployment, and local disk so a developer can run the whole
+ * pipeline without standing up either. The route layer never knows which is
+ * active.
  */
 
 import { createHash } from 'node:crypto';
@@ -11,6 +12,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { GetObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+import { list, put as putBlob } from '@vercel/blob';
 import type { ServerConfig } from '../config.js';
 
 export interface StoredObject {
@@ -21,7 +23,7 @@ export interface StoredObject {
 }
 
 export interface StorageAdapter {
-  readonly driver: 's3' | 'local';
+  readonly driver: 's3' | 'blob' | 'local';
   put(key: string, body: Uint8Array, contentType: string): Promise<StoredObject>;
   get(key: string): Promise<Uint8Array | null>;
   /** A URL valid for `ttlSeconds`; local storage returns a static path. */
@@ -136,6 +138,46 @@ export class S3Storage implements StorageAdapter {
   }
 }
 
+/**
+ * Vercel Blob storage. The default on a Vercel deployment once a Blob store
+ * is connected to the project — no bucket/region/endpoint to configure,
+ * Vercel injects BLOB_READ_WRITE_TOKEN and the SDK reads it automatically.
+ */
+export class BlobStorage implements StorageAdapter {
+  readonly driver = 'blob' as const;
+
+  async put(key: string, body: Uint8Array, contentType: string): Promise<StoredObject> {
+    const blob = await putBlob(key, Buffer.from(body), {
+      access: 'public',
+      contentType,
+      addRandomSuffix: false,
+      // Keys are content-addressed (see contentKey): re-uploading identical
+      // bytes under the same key is expected, not a collision to reject.
+      allowOverwrite: true,
+    });
+    return { key, url: blob.url, bytes: body.byteLength };
+  }
+
+  async get(key: string): Promise<Uint8Array | null> {
+    const found = await this.find(key);
+    if (!found) return null;
+    const response = await fetch(found.url);
+    if (!response.ok) return null;
+    return new Uint8Array(await response.arrayBuffer());
+  }
+
+  async url(key: string): Promise<string> {
+    const found = await this.find(key);
+    if (!found) throw new Error(`No stored object for key: ${key}`);
+    return found.url;
+  }
+
+  private async find(key: string): Promise<{ url: string } | null> {
+    const { blobs } = await list({ prefix: key, limit: 1 });
+    return blobs[0] ?? null;
+  }
+}
+
 export function createStorage(config: ServerConfig): StorageAdapter {
   if (config.storage.driver === 's3' && config.storage.bucket) {
     return new S3Storage(config.storage.bucket, {
@@ -143,6 +185,9 @@ export function createStorage(config: ServerConfig): StorageAdapter {
       endpoint: config.storage.endpoint,
       publicBaseUrl: config.storage.publicBaseUrl,
     });
+  }
+  if (config.storage.driver === 'blob') {
+    return new BlobStorage();
   }
   return new LocalStorage(
     config.storage.localDir,

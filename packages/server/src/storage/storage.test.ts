@@ -74,4 +74,21 @@ describe('createStorage', () => {
     );
     expect(storage.driver).toBe('s3');
   });
+
+  it('picks blob when a Vercel Blob store is connected but no bucket is set', () => {
+    const storage = createStorage(
+      loadConfig({ BLOB_READ_WRITE_TOKEN: 'vercel_blob_rw_test' } as NodeJS.ProcessEnv),
+    );
+    expect(storage.driver).toBe('blob');
+  });
+
+  it('prefers s3 over blob when both are configured', () => {
+    const storage = createStorage(
+      loadConfig({
+        S3_BUCKET: 'my-bucket',
+        BLOB_READ_WRITE_TOKEN: 'vercel_blob_rw_test',
+      } as NodeJS.ProcessEnv),
+    );
+    expect(storage.driver).toBe('s3');
+  });
 });
