@@ -44,7 +44,7 @@ cached footprint proxy and gains a "Save to my library" button.
 
 `vercel.json` builds the whole workspace (`npm run build`) and serves
 `packages/web/dist` as the static site, with the Express API lifted into a
-single serverless function at `api/[...path].ts` — same origin as the
+single serverless function at `api/index.ts` — same origin as the
 frontend, so no CORS setup is needed. Required environment variables on the
 Vercel project:
 

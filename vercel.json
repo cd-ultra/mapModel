@@ -4,9 +4,10 @@
   "outputDirectory": "packages/web/dist",
   "installCommand": "npm install",
   "functions": {
-    "api/[...path].ts": {
+    "api/index.ts": {
       "memory": 1024,
       "maxDuration": 30
     }
-  }
+  },
+  "rewrites": [{ "source": "/api/(.*)", "destination": "/api/index" }]
 }
