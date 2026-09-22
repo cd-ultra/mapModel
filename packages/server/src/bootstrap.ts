@@ -1,7 +1,7 @@
 /**
  * Wires `AppDependencies` from environment/config. Shared by the long-running
  * server entrypoint (`index.ts`) and the Vercel serverless entrypoint
- * (`api/[...path].ts` at the repo root) so the two never drift.
+ * (`api/index.ts` at the repo root) so the two never drift.
  */
 
 import { Pool } from 'pg';
