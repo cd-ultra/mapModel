@@ -196,9 +196,23 @@ function extractRings(element: OverpassElement): { outer: LonLat[][]; inner: Lon
 
     for (const member of members) {
       if (member.type !== 'way' || !member.geometry || member.geometry.length < 2) continue;
-      // Untagged roles appear on some older multipolygons; treat them as outer.
-      const target = member.role === 'inner' ? innerSegments : outerSegments;
-      target.push(toLonLat(member.geometry));
+
+      // Two conventions carry a footprint boundary here: a plain multipolygon
+      // relation (roles "outer"/"inner", or blank on some older data), and a
+      // "Simple 3D Buildings" `type=building` relation (role "outline" for
+      // the footprint). Complex buildings — a stepped tower, a cathedral —
+      // are exactly the ones commonly split into multiple `building:part`/
+      // `roof` members alongside the outline, and weaving those unrelated
+      // segments into the boundary stitcher is what used to make ring
+      // closure fail for them specifically: skip anything that is not one of
+      // the boundary roles.
+      if (member.role === 'inner') {
+        innerSegments.push(toLonLat(member.geometry));
+        continue;
+      }
+      if (!member.role || member.role === 'outer' || member.role === 'outline') {
+        outerSegments.push(toLonLat(member.geometry));
+      }
     }
 
     const outer = stitchRings(outerSegments).map(closeRing).filter((r) => r.length >= 4);
