@@ -35,6 +35,8 @@ function rectFootprint(
     polygon: { type: 'Polygon', coordinates: [ring] },
     heightMeters: heightM,
     minHeightMeters: 0,
+    roofShape: null,
+    roofHeightMeters: 0,
     tags: {},
     origin: { lon: originLonLat.lon, lat: originLonLat.lat, alt: 0 },
   };
@@ -108,6 +110,8 @@ describe('buildBlockMesh', () => {
       polygon: { type: 'Polygon', coordinates: [[[0, 0]]] },
       heightMeters: 10,
       minHeightMeters: 0,
+      roofShape: null,
+      roofHeightMeters: 0,
       tags: {},
       origin: CENTER,
     };

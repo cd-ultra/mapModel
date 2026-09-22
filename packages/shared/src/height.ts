@@ -106,3 +106,34 @@ export function resolveHeight(
     source: 'default',
   };
 }
+
+export interface ResolvedRoof {
+  shape: 'pyramidal' | null;
+  roofHeightMeters: number;
+}
+
+/**
+ * Work out whether to cap the extrusion with a pyramidal roof instead of a
+ * flat one, and how tall that cap should be.
+ *
+ * Only `roof:shape=pyramidal` is modelled (see `BuildingFootprint.roofShape`
+ * for why). Even then, only an explicit `roof:height` is trusted: guessing a
+ * fraction of the building's total height for buildings that omit it would
+ * invent geometry we have no tag-based reason to believe, so those fall back
+ * to the existing flat-topped prism instead.
+ */
+export function resolveRoof(
+  tags: Record<string, string>,
+  heightMeters: number,
+  minHeightMeters: number,
+): ResolvedRoof {
+  if (tags['roof:shape'] !== 'pyramidal') return { shape: null, roofHeightMeters: 0 };
+
+  const explicit = parseOsmLength(tags['roof:height']);
+  if (explicit === null) return { shape: null, roofHeightMeters: 0 };
+
+  // The roof can never be taller than the building itself has left above its
+  // base — clamp rather than let a bad tag combination invert the walls.
+  const wallSpan = heightMeters - minHeightMeters;
+  return { shape: 'pyramidal', roofHeightMeters: Math.min(explicit, wallSpan) };
+}

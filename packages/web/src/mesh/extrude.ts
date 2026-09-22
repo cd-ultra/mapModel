@@ -160,6 +160,13 @@ export function buildExtrusion(
   const base = footprint.minHeightMeters;
   const top = Math.max(footprint.heightMeters, base + MIN_EXTRUSION_M);
 
+  // A pyramidal cap only makes sense over a single, hole-free outer ring — a
+  // courtyard or multi-ring footprint has no single apex a fan can converge
+  // on, so those fall back to the existing flat cap.
+  const isPyramidal =
+    footprint.roofShape === 'pyramidal' && footprint.roofHeightMeters > 0 && rings.length === 1;
+  const wallTop = isPyramidal ? top - footprint.roofHeightMeters : top;
+
   // earcut wants one flat coordinate array with hole start indices.
   const flat: number[] = [];
   const holeIndices: number[] = [];
@@ -178,16 +185,40 @@ export function buildExtrusion(
   const builder = new MeshBuilder();
   const vertex = (i: number): [number, number] => [flat[i * 2]!, flat[i * 2 + 1]!];
 
-  // Roof and floor. earcut preserves the outer ring's counter-clockwise
-  // winding, which maps to +Y normals under `toThree`; the floor is the same
-  // triangles reversed.
+  if (isPyramidal) {
+    const outerPts = rings[0]!.points;
+    let cx = 0;
+    let cn = 0;
+    for (const [e, n] of outerPts) {
+      cx += e;
+      cn += n;
+    }
+    cx /= outerPts.length;
+    cn /= outerPts.length;
+    const apex = toThree(cx, cn, top);
+
+    for (let i = 0; i < outerPts.length; i += 1) {
+      const [e0, n0] = outerPts[i]!;
+      const [e1, n1] = outerPts[(i + 1) % outerPts.length]!;
+      builder.addTriangle(toThree(e0, n0, wallTop), toThree(e1, n1, wallTop), apex);
+    }
+  } else {
+    // Roof. earcut preserves the outer ring's counter-clockwise winding,
+    // which maps to +Y normals under `toThree`.
+    for (let i = 0; i < triangles.length; i += 3) {
+      const [ax, an] = vertex(triangles[i]!);
+      const [bx, bn] = vertex(triangles[i + 1]!);
+      const [cxv, cnv] = vertex(triangles[i + 2]!);
+      builder.addTriangle(toThree(ax, an, top), toThree(bx, bn, top), toThree(cxv, cnv, top));
+    }
+  }
+
+  // Floor: same triangles as a flat cap would use, reversed.
   for (let i = 0; i < triangles.length; i += 3) {
     const [ax, an] = vertex(triangles[i]!);
     const [bx, bn] = vertex(triangles[i + 1]!);
-    const [cx, cn] = vertex(triangles[i + 2]!);
-
-    builder.addTriangle(toThree(ax, an, top), toThree(bx, bn, top), toThree(cx, cn, top));
-    builder.addTriangle(toThree(cx, cn, base), toThree(bx, bn, base), toThree(ax, an, base));
+    const [cxv, cnv] = vertex(triangles[i + 2]!);
+    builder.addTriangle(toThree(cxv, cnv, base), toThree(bx, bn, base), toThree(ax, an, base));
   }
 
   // Walls. Winding is right-of-travel for both the CCW outer ring and the CW
@@ -201,8 +232,8 @@ export function buildExtrusion(
 
       const b0 = toThree(e0, n0, base);
       const b1 = toThree(e1, n1, base);
-      const t1 = toThree(e1, n1, top);
-      const t0 = toThree(e0, n0, top);
+      const t1 = toThree(e1, n1, wallTop);
+      const t0 = toThree(e0, n0, wallTop);
 
       builder.addTriangle(b0, b1, t1);
       builder.addTriangle(b0, t1, t0);

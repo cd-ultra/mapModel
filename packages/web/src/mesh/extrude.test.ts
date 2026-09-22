@@ -35,6 +35,8 @@ function rectFootprint(
     polygon: { type: 'Polygon', coordinates: [ring] },
     heightMeters: heightM,
     minHeightMeters: 0,
+    roofShape: null,
+    roofHeightMeters: 0,
     tags: {},
     origin: ORIGIN,
     ...extra,
@@ -220,6 +222,8 @@ describe('buildExtrusion', () => {
       polygon: { type: 'Polygon', coordinates: [ring] },
       heightMeters: 10,
       minHeightMeters: 0,
+      roofShape: null,
+      roofHeightMeters: 0,
       tags: {},
       origin: ORIGIN,
     });
@@ -227,5 +231,33 @@ describe('buildExtrusion', () => {
     // L-shape area = 20*20 - 10*10 = 300.
     expect(result.footprintAreaM2).toBeCloseTo(300, 2);
     expect(signedVolume(positionsOf(result.geometry))).toBeCloseTo(3000, 1);
+  });
+
+  it('tapers walls to a single apex for a pyramidal roof', () => {
+    const footprint = rectFootprint(20, 20, 50, {
+      roofShape: 'pyramidal',
+      roofHeightMeters: 20,
+    });
+    const result = buildExtrusion(footprint);
+    const box = result.geometry.boundingBox!;
+
+    // Walls stop at 30m (50 - 20) and the apex reaches the full 50m height.
+    expect(box.max.y).toBeCloseTo(50, 4);
+    // A square pyramid of base 400 and height 20 sits atop a 20x20x30 prism.
+    const prismVolume = 400 * 30;
+    const pyramidVolume = (400 * 20) / 3;
+    expect(signedVolume(positionsOf(result.geometry))).toBeCloseTo(
+      prismVolume + pyramidVolume,
+      0,
+    );
+  });
+
+  it('falls back to a flat roof when roof:shape is pyramidal but no height is known', () => {
+    const footprint = rectFootprint(20, 20, 50, {
+      roofShape: 'pyramidal',
+      roofHeightMeters: 0,
+    });
+    const result = buildExtrusion(footprint);
+    expect(signedVolume(positionsOf(result.geometry))).toBeCloseTo(400 * 50, 0);
   });
 });

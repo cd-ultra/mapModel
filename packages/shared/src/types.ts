@@ -52,6 +52,15 @@ export interface BuildingFootprint {
   heightMeters: number;
   /** Height of the base above ground, from OSM `min_height`. Usually 0. */
   minHeightMeters: number;
+  /**
+   * The only roof shape currently modelled beyond a flat top. `null` covers
+   * a flat roof and every other OSM `roof:shape` (hipped, gabled, dome,
+   * skillion, ...) — those still extrude as a flat-topped prism rather than
+   * their true form, a known gap rather than a guess at unmodelled geometry.
+   */
+  roofShape: 'pyramidal' | null;
+  /** Height of the pyramidal cap in metres, from OSM `roof:height`. Zero when `roofShape` is null. */
+  roofHeightMeters: number;
   /** Raw OSM tags, kept for attribution and for the metadata panel. */
   tags: Record<string, string>;
   /** Where the footprint sits, used to centre the local ENU frame. */
