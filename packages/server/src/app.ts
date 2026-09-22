@@ -70,6 +70,33 @@ export function createApp(deps: AppDependencies) {
   );
   app.use(cors({ origin: config.corsOrigins, credentials: true }));
   app.use(express.json({ limit: '2mb' }));
+
+  /**
+   * Footprint lookup. This is the endpoint that exists so browsers never talk
+   * to Overpass directly — see `osm/overpassClient.ts` for why.
+   *
+   * Registered ahead of `authenticate` deliberately: it serves public OSM
+   * data, never reads `req.userId`, and is on the "pick a building" path
+   * that the app is designed to work on with no login at all. Gating it
+   * behind a bearer token would break anonymous browsing entirely once
+   * AUTH_REQUIRED is on, for a route that has nothing user-specific to
+   * protect.
+   */
+  app.get(
+    '/api/osm/footprint',
+    route(async (req, res) => {
+      const query = footprintQuerySchema.parse(req.query);
+      const result = await overpass.getFootprint(
+        { id: query.id, type: query.type },
+        query.tileHeight ?? null,
+      );
+
+      // Footprints are immutable enough to cache hard at the edge too.
+      res.set('cache-control', 'public, max-age=3600');
+      res.json(result);
+    }),
+  );
+
   app.use(
     authenticate({
       required: config.authRequired,
@@ -86,25 +113,6 @@ export function createApp(deps: AppDependencies) {
       overpassCache: overpass.stats(),
     });
   });
-
-  /**
-   * Footprint lookup. This is the endpoint that exists so browsers never talk
-   * to Overpass directly — see `osm/overpassClient.ts` for why.
-   */
-  app.get(
-    '/api/osm/footprint',
-    route(async (req, res) => {
-      const query = footprintQuerySchema.parse(req.query);
-      const result = await overpass.getFootprint(
-        { id: query.id, type: query.type },
-        query.tileHeight ?? null,
-      );
-
-      // Footprints are immutable enough to cache hard at the edge too.
-      res.set('cache-control', 'public, max-age=3600');
-      res.json(result);
-    }),
-  );
 
   app.get(
     '/api/extractions',

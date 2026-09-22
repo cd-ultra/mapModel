@@ -35,8 +35,13 @@ const extractionBody: CreateExtractionRequest = {
 
 let storageDir: string;
 
-function buildApp(overrides: { fetchImpl?: typeof fetch } = {}) {
-  const config = loadConfig({ CORS_ORIGINS: 'http://localhost:5173' } as NodeJS.ProcessEnv);
+function buildApp(
+  overrides: { fetchImpl?: typeof fetch; env?: Record<string, string> } = {},
+) {
+  const config = loadConfig({
+    CORS_ORIGINS: 'http://localhost:5173',
+    ...overrides.env,
+  } as NodeJS.ProcessEnv);
   const fetchImpl =
     overrides.fetchImpl ??
     ((async () =>
@@ -94,6 +99,14 @@ describe('GET /api/osm/footprint', () => {
 
   it('rejects an unsupported element type', async () => {
     await request(buildApp()).get('/api/osm/footprint?id=1&type=node').expect(400);
+  });
+
+  it('stays open with no token even when AUTH_REQUIRED is set — it serves public OSM data', async () => {
+    const app = buildApp({ env: { AUTH_REQUIRED: 'true', JWT_SECRET: 'test-secret' } });
+
+    await request(app).get('/api/osm/footprint?id=24950831&type=way').expect(200);
+    // Contrast: a route that does read req.userId is still locked down.
+    await request(app).get('/api/extractions').expect(401);
   });
 
   it('passes the tile height through as an override', async () => {
