@@ -113,6 +113,17 @@ export interface ResolvedRoof {
 }
 
 /**
+ * A roof, by definition, sits on top of walls — so however tall an explicit
+ * `roof:height` claims to be, it never gets to consume the entire wall span.
+ * Some buildings are tagged with `roof:height` equal to (or exceeding) their
+ * total `height`, which taken literally collapses the walls to nothing and
+ * extrudes as a knife-edge pyramid touching the ground with no visible base.
+ * Reserving this fraction of the wall span as a guaranteed minimum keeps that
+ * degenerate combination from producing an unrecognisable shape.
+ */
+const MIN_WALL_FRACTION = 0.1;
+
+/**
  * Work out whether to cap the extrusion with a pyramidal roof instead of a
  * flat one, and how tall that cap should be.
  *
@@ -133,7 +144,9 @@ export function resolveRoof(
   if (explicit === null) return { shape: null, roofHeightMeters: 0 };
 
   // The roof can never be taller than the building itself has left above its
-  // base — clamp rather than let a bad tag combination invert the walls.
+  // base, and is capped further so a minimum wall section always survives —
+  // clamp rather than let a bad tag combination invert or erase the walls.
   const wallSpan = heightMeters - minHeightMeters;
-  return { shape: 'pyramidal', roofHeightMeters: Math.min(explicit, wallSpan) };
+  const maxRoofHeight = wallSpan * (1 - MIN_WALL_FRACTION);
+  return { shape: 'pyramidal', roofHeightMeters: Math.min(explicit, maxRoofHeight) };
 }
