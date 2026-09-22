@@ -3,9 +3,11 @@
  */
 
 import { createApp } from './app.js';
-import { bootstrap } from './bootstrap.js';
+import { bootstrap, migrate } from './bootstrap.js';
 
-const { pool, ...deps } = bootstrap();
+const bootstrapped = bootstrap();
+await migrate(bootstrapped);
+const { pool, ...deps } = bootstrapped;
 const app = createApp(deps);
 
 const server = app.listen(deps.config.port, () => {

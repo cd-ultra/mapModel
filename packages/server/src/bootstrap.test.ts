@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { bootstrap } from './bootstrap.js';
+import { bootstrap, migrate } from './bootstrap.js';
 import { loadConfig } from './config.js';
 import { MemoryRepository } from './db/repository.js';
 
@@ -21,5 +21,12 @@ describe('bootstrap', () => {
   it('wires a real verifyToken once a secret is configured', () => {
     const deps = bootstrap(config({ AUTH_REQUIRED: 'true', JWT_SECRET: 'shh' }));
     expect(deps.verifyToken).toBeTypeOf('function');
+  });
+});
+
+describe('migrate', () => {
+  it('is a no-op with no database configured', async () => {
+    // No network, no pool — this must resolve without ever touching pg.
+    await expect(migrate(bootstrap(config()))).resolves.toBeUndefined();
   });
 });
