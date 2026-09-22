@@ -9,6 +9,7 @@ import type { AppDependencies } from './app.js';
 import { loadConfig, type ServerConfig } from './config.js';
 import { createJwtVerifier } from './auth/jwtVerifier.js';
 import { MemoryRepository, PostgresRepository, type Repository } from './db/repository.js';
+import { runMigrations } from './db/migrate.js';
 import { OverpassClient } from './osm/overpassClient.js';
 import { createStorage } from './storage/index.js';
 
@@ -48,4 +49,19 @@ export function bootstrap(
     ...(config.jwtSecret ? { verifyToken: createJwtVerifier(config.jwtSecret) } : {}),
     pool,
   };
+}
+
+/**
+ * Applies any unapplied migrations before the app starts serving requests.
+ * A no-op with the in-memory repository. Both entrypoints call this right
+ * after `bootstrap()` so a fresh deployment's database is never queried
+ * against a schema that hasn't caught up yet — including on a serverless
+ * cold start, where there is no separate deploy-time migration step.
+ */
+export async function migrate(bootstrapped: Bootstrapped): Promise<void> {
+  if (!bootstrapped.pool) return;
+  const applied = await runMigrations(bootstrapped.pool);
+  if (applied.length > 0) {
+    console.log(`Applied migrations: ${applied.join(', ')}`);
+  }
 }

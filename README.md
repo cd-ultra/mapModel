@@ -53,9 +53,11 @@ Vercel project:
 | `VITE_API_BASE_URL` | Set to `/` so the web build talks to the same-origin API instead of running in no-backend mode. |
 | `AUTH_REQUIRED` | Must be `true` — the server refuses to boot under `NODE_ENV=production` (which Vercel sets) otherwise. |
 | `JWT_SECRET` | Shared HS256 secret for bearer tokens (see `src/auth/jwtVerifier.ts`). Required whenever `AUTH_REQUIRED=true`. Mint a token with `JWT_SECRET=... npm run mint-token -w @gme/server -- <userId>`. |
-| `DATABASE_URL` | Postgres/PostGIS connection string. Omit only for a throwaway deployment — the in-memory repository does not survive a cold start on serverless. |
+| `DATABASE_URL` | Postgres/PostGIS connection string. Omit only for a throwaway deployment — the in-memory repository does not survive a cold start on serverless. Connect a **Neon** database from the Storage tab (Create Database → Postgres) and this is injected automatically. Migrations run themselves — see below — no manual step needed. |
 
 Object storage for exported GLBs: the `local` disk driver is not viable on serverless (ephemeral, no shared filesystem across instances). Connect a **Vercel Blob** store to the project (Storage tab → Create Database → Blob) and nothing else needs configuring — Vercel injects `BLOB_READ_WRITE_TOKEN` automatically and `createStorage` picks the `blob` driver. To use S3/R2/MinIO instead, set `S3_BUCKET`, `S3_REGION`, `S3_ENDPOINT`, `STORAGE_PUBLIC_BASE_URL` (S3 takes precedence over Blob when both are present).
+
+**Migrations run automatically.** Both entrypoints (`src/index.ts` and `api/index.ts`) call `bootstrap()` then `migrate()` before serving any request — on Vercel that means the first cold start after connecting a database applies the schema, guarded by a Postgres advisory lock so concurrent cold starts don't race each other. `npm run migrate -w @gme/server` still exists for running migrations by hand (e.g. against a database the app isn't pointed at yet).
 
 `src/auth/jwtVerifier.ts` is a stopgap: real multi-user auth still means
 swapping `verifyToken` for Auth.js/Clerk/etc, per the seam in
