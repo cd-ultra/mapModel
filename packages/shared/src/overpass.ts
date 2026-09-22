@@ -8,7 +8,7 @@
  */
 
 import { EnuFrame, openRing, ringCentroid, signedArea } from './geo.js';
-import { resolveHeight } from './height.js';
+import { resolveHeight, resolveRoof } from './height.js';
 import type {
   BboxDegrees,
   BuildingFootprint,
@@ -324,6 +324,7 @@ function footprintFromElement(
 
   const tags = element.tags ?? {};
   const height = resolveHeight(tags, options.tileHeight);
+  const roof = resolveRoof(tags, height.heightMeters, height.minHeightMeters);
 
   const footprint: BuildingFootprint = {
     osm: ref,
@@ -333,6 +334,8 @@ function footprintFromElement(
     },
     heightMeters: height.heightMeters,
     minHeightMeters: height.minHeightMeters,
+    roofShape: roof.shape,
+    roofHeightMeters: roof.roofHeightMeters,
     tags,
     origin: { lon: centroidLonLat[0], lat: centroidLonLat[1], alt: 0 },
   };
