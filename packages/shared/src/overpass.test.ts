@@ -277,6 +277,63 @@ describe('parseOverpassFootprint', () => {
       ),
     ).toThrow(/no closed outer ring/);
   });
+
+  it('reads a Simple 3D Buildings relation from its "outline" member', () => {
+    // type=building relations (common for churches and stepped towers, which
+    // are usually decomposed into several building:part members) carry the
+    // footprint on a member with role "outline", not "outer".
+    const result = parseOverpassFootprint(
+      {
+        elements: [
+          {
+            type: 'relation',
+            id: REL.id,
+            tags: { building: 'church' },
+            members: [{ type: 'way', role: 'outline', geometry: SQUARE }],
+          },
+        ],
+      },
+      REL,
+    );
+    expect(result.footprint.polygon.coordinates).toHaveLength(1);
+  });
+
+  it('does not let a "part"/"roof" member corrupt the outline ring', () => {
+    // An unrelated part/roof segment that happens to touch the outline at one
+    // point used to get woven into the boundary stitcher, preventing the
+    // outline itself — already closed on its own — from ever being
+    // recognised as a valid ring.
+    const roofSliver = [
+      SQUARE[0]!,
+      { lon: -122.41, lat: 37.7 },
+      { lon: -122.4, lat: 37.71 },
+    ];
+    const result = parseOverpassFootprint(
+      {
+        elements: [
+          {
+            type: 'relation',
+            id: REL.id,
+            tags: { building: 'yes' },
+            members: [
+              { type: 'way', role: 'outline', geometry: SQUARE },
+              { type: 'way', role: 'part', geometry: roofSliver },
+              { type: 'way', role: 'roof', geometry: roofSliver },
+            ],
+          },
+        ],
+      },
+      REL,
+    );
+    expect(result.footprint.polygon.coordinates).toHaveLength(1);
+    const frame = new EnuFrame(result.footprint.origin);
+    const projected = openRing(result.footprint.polygon.coordinates[0]!).map((c) =>
+      frame.lonLatToEnu2d(c),
+    );
+    // The retained ring is the real footprint, not something warped by the
+    // roof sliver's geometry.
+    expect(Math.abs(signedArea(projected))).toBeGreaterThan(100);
+  });
 });
 
 describe('buildOverpassBboxQuery', () => {
