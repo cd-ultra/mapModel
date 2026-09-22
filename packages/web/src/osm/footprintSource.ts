@@ -17,6 +17,7 @@
 import {
   DEFAULT_OVERPASS_ENDPOINT,
   buildOverpassQuery,
+  isRetryableOverpassStatus,
   parseOverpassFootprint,
   type FootprintResponse,
   type OsmRef,
@@ -45,14 +46,6 @@ export class FootprintFetchError extends Error {
     this.status = options.status;
     this.retryable = options.retryable ?? false;
   }
-}
-
-/**
- * Overpass answers overload with 429 and 504. Both clear up on their own, so
- * they are worth retrying with backoff; everything else is surfaced at once.
- */
-function isRetryableStatus(status: number): boolean {
-  return status === 429 || status === 502 || status === 503 || status === 504;
 }
 
 const delay = (ms: number, signal?: AbortSignal) =>
@@ -93,7 +86,7 @@ export class OverpassFootprintSource implements FootprintSource {
       });
 
       if (!response.ok) {
-        const retryable = isRetryableStatus(response.status);
+        const retryable = isRetryableOverpassStatus(response.status);
         lastError = new FootprintFetchError(
           `Overpass returned ${response.status}. The public endpoint rate-limits aggressively; configure VITE_API_BASE_URL to use the cached server proxy instead.`,
           { status: response.status, retryable },
@@ -130,7 +123,7 @@ export class ServerFootprintSource implements FootprintSource {
       const detail = await response.text().catch(() => '');
       throw new FootprintFetchError(
         `Footprint service returned ${response.status}${detail ? `: ${detail}` : ''}`,
-        { status: response.status, retryable: isRetryableStatus(response.status) },
+        { status: response.status, retryable: isRetryableOverpassStatus(response.status) },
       );
     }
     return (await response.json()) as FootprintResponse;

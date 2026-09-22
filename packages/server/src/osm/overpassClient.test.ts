@@ -31,6 +31,9 @@ function makeClient(fetchImpl: typeof fetch, now = () => 1_000_000) {
     timeoutMs: 5_000,
     fetchImpl,
     now,
+    // Retries are exercised for real below; no test needs to wait out the
+    // actual 1s/2s backoff.
+    sleep: async () => {},
   });
 }
 
@@ -135,8 +138,12 @@ describe('OverpassClient', () => {
   });
 
   it('does not cache failures', async () => {
+    // Three retryable 429s exhausts every attempt for the first call; the
+    // fourth response is a fresh, separate call's turn.
     const fetchImpl = vi
       .fn()
+      .mockResolvedValueOnce(new Response('busy', { status: 429 }))
+      .mockResolvedValueOnce(new Response('busy', { status: 429 }))
       .mockResolvedValueOnce(new Response('busy', { status: 429 }))
       .mockResolvedValueOnce(okResponse(goodPayload)) as unknown as typeof fetch;
     const client = makeClient(fetchImpl);
@@ -145,7 +152,29 @@ describe('OverpassClient', () => {
     await expect(client.getFootprint(REF, null)).resolves.toBeDefined();
   });
 
-  it('surfaces a rate limit as 429 rather than a generic failure', async () => {
+  it('retries a 504 and succeeds once Overpass recovers', async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(new Response('gateway timeout', { status: 504 }))
+      .mockResolvedValueOnce(okResponse(goodPayload)) as unknown as typeof fetch;
+
+    const result = await makeClient(fetchImpl).getFootprint(REF, null);
+    expect(result.footprint.osm).toEqual(REF);
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
+  it('gives up after exhausting retries on a persistent 504', async () => {
+    const fetchImpl = vi.fn(
+      async () => new Response('gateway timeout', { status: 504 }),
+    ) as unknown as typeof fetch;
+
+    await expect(makeClient(fetchImpl).getFootprint(REF, null)).rejects.toMatchObject({
+      status: 502,
+    });
+    expect(fetchImpl).toHaveBeenCalledTimes(3);
+  });
+
+  it('surfaces a rate limit as 429 rather than a generic failure, after retrying', async () => {
     const fetchImpl = vi.fn(
       async () => new Response('slow down', { status: 429 }),
     ) as unknown as typeof fetch;
@@ -153,9 +182,10 @@ describe('OverpassClient', () => {
     await expect(makeClient(fetchImpl).getFootprint(REF, null)).rejects.toMatchObject({
       status: 429,
     });
+    expect(fetchImpl).toHaveBeenCalledTimes(3);
   });
 
-  it('maps an upstream 500 to a 502', async () => {
+  it('maps an upstream 500 to a 502 without retrying — it is not a transient status', async () => {
     const fetchImpl = vi.fn(
       async () => new Response('boom', { status: 500 }),
     ) as unknown as typeof fetch;
@@ -163,6 +193,7 @@ describe('OverpassClient', () => {
     await expect(makeClient(fetchImpl).getFootprint(REF, null)).rejects.toMatchObject({
       status: 502,
     });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 
   it('reports a deleted element as a 404, not an outage', async () => {

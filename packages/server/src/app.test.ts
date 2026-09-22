@@ -63,7 +63,13 @@ function buildApp(
     config,
     repository: new MemoryRepository(),
     storage: new LocalStorage(storageDir, '/assets'),
-    overpass: new OverpassClient({ ...config.overpass, fetchImpl }),
+    overpass: new OverpassClient({
+      ...config.overpass,
+      fetchImpl,
+      // Retry backoff is real time by default; nothing here needs to wait
+      // out an actual 1s/2s between attempts.
+      sleep: async () => {},
+    }),
   });
 }
 

@@ -22,6 +22,18 @@ import { OSM_ATTRIBUTION } from './types.js';
 export const DEFAULT_OVERPASS_ENDPOINT = 'https://overpass-api.de/api/interpreter';
 
 /**
+ * Overpass answers overload with 429 and 502/503/504. All clear up on their
+ * own — a complex building (a cathedral's multipolygon, a stepped tower's
+ * many members) is more likely to graze the public instance's own processing
+ * budget, not less likely to ever succeed — so callers on both ends (the
+ * server's proxy, the browser's direct-to-Overpass fallback) retry these
+ * rather than surfacing them at the first attempt.
+ */
+export function isRetryableOverpassStatus(status: number): boolean {
+  return status === 429 || status === 502 || status === 503 || status === 504;
+}
+
+/**
  * `out geom` returns full coordinates inline, which avoids a second round trip
  * to resolve node references — important because Overpass rate-limits by
  * request count as well as by CPU time.
