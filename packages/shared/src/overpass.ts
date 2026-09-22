@@ -219,8 +219,25 @@ function extractRings(element: OverpassElement): { outer: LonLat[][]; inner: Lon
     const inner = stitchRings(innerSegments).map(closeRing).filter((r) => r.length >= 4);
 
     if (outer.length === 0) {
+      // The role/type-based fallbacks so far were educated guesses standing
+      // in for looking at the actual data. Rather than guess again blindly,
+      // surface exactly what this relation's members look like so the next
+      // failure report is conclusive instead of another round trip.
+      const shown = members.slice(0, 30).map((m) => {
+        const kind = m.type ?? '?';
+        const role = m.role ? `:${m.role}` : '';
+        const geom = m.geometry ? `(${m.geometry.length}pt)` : '(no geometry)';
+        return `${kind}${role}${geom}`;
+      });
+      const summary =
+        members.length === 0
+          ? 'none'
+          : shown.join(', ') + (members.length > shown.length ? `, +${members.length - shown.length} more` : '');
+
       throw new OverpassParseError(
-        `OSM relation ${element.id} yielded no closed outer ring`,
+        `OSM relation ${element.id} yielded no closed outer ring. ` +
+          `${members.length} member(s): ${summary}. ` +
+          `${outerSegments.length} boundary segment(s) were collected before stitching.`,
       );
     }
     return { outer, inner };
