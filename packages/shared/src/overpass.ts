@@ -42,8 +42,20 @@ export function buildOverpassQuery(ref: OsmRef, timeoutSeconds = 25): string {
   if (!Number.isInteger(ref.id) || ref.id <= 0) {
     throw new Error(`Invalid OSM id: ${ref.id}`);
   }
-  const selector = ref.type === 'relation' ? 'relation' : 'way';
-  return `[out:json][timeout:${timeoutSeconds}];${selector}(${ref.id});out geom tags;`;
+
+  if (ref.type === 'relation') {
+    // `out geom` on a bare `relation(id);` selection prints the relation's
+    // members but leaves each one's `geometry` empty — Overpass only fills
+    // in member geometry for elements already pulled into the query's
+    // working set. `(._;>;)` unions the relation with everything reachable
+    // by recursing down from it (its ways, and their nodes), which is the
+    // standard idiom for "a relation with full member geometry". Without
+    // this, every relation-type building (any multipolygon or Simple 3D
+    // Buildings footprint — which is to say, most non-trivial ones) parsed
+    // as if it had zero members at all.
+    return `[out:json][timeout:${timeoutSeconds}];relation(${ref.id});(._;>;);out geom tags;`;
+  }
+  return `[out:json][timeout:${timeoutSeconds}];way(${ref.id});out geom tags;`;
 }
 
 /**
@@ -62,6 +74,12 @@ export function buildOverpassBboxQuery(bbox: BboxDegrees, timeoutSeconds = 60): 
   return (
     `[out:json][timeout:${timeoutSeconds}];` +
     `(way["building"](${box});relation["building"](${box}););` +
+    // Same reason as the single-relation query: a relation's own `out geom`
+    // needs its members already in the working set to print their geometry.
+    // Recursing here is a no-op for the way results (already self-contained)
+    // and fills in member geometry for any relation-type building the box
+    // happens to contain.
+    `(._;>;);` +
     `out geom tags;`
   );
 }

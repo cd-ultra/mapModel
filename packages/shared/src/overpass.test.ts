@@ -29,8 +29,14 @@ describe('buildOverpassQuery', () => {
     );
   });
 
-  it('builds a relation query', () => {
-    expect(buildOverpassQuery(REL)).toContain('relation(555)');
+  it('builds a relation query that recurses down for member geometry', () => {
+    // A bare `relation(id); out geom;` prints each member's type/ref/role but
+    // not its coordinates — Overpass only fills in geometry for elements
+    // already pulled into the query's working set. `(._;>;)` adds the
+    // relation's members (and their nodes) to that set.
+    expect(buildOverpassQuery(REL)).toBe(
+      '[out:json][timeout:25];relation(555);(._;>;);out geom tags;',
+    );
   });
 
   it('rejects ids that would produce a malformed query', () => {
@@ -342,6 +348,11 @@ describe('buildOverpassBboxQuery', () => {
     expect(query).toContain('way["building"](-2,-1,4,3)');
     expect(query).toContain('relation["building"](-2,-1,4,3)');
     expect(query).toContain('out geom tags;');
+  });
+
+  it('recurses down so a relation-type building in the box gets member geometry', () => {
+    const query = buildOverpassBboxQuery({ west: -1, south: -2, east: 3, north: 4 });
+    expect(query).toContain('(._;>;);out geom tags;');
   });
 
   it('rejects an inverted box', () => {
