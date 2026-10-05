@@ -9,9 +9,10 @@
 import { useMemo, useState } from 'react';
 import { Euler, Quaternion } from 'three';
 import type { Placement } from '@gme/shared';
-import { useAppStore } from '../state/store.js';
+import { useAppStore, type BlockSource } from '../state/store.js';
 import { buildExportScene, downloadGlb, exportGlb } from '../mesh/exportGlb.js';
 import { buildBlockMesh } from '../mesh/buildBlockMesh.js';
+import { buildCityweftBlockMesh } from '../mesh/buildCityweftBlockMesh.js';
 import { downloadStl, exportStl } from '../mesh/exportStl.js';
 import { BlockView } from '../editor/BlockView.js';
 import type { GizmoMode } from '../editor/EditorView.js';
@@ -488,16 +489,25 @@ export function PlacementPanel() {
  * export a printable model — a base plate plus every building, the singled-
  * out one split into its own STL so it can be printed in a different colour
  * or material from the rest of the block.
+ *
+ * Building data comes from Overpass/OSM by default (no key needed) or,
+ * when `VITE_CITYWEFT_API_KEY` is set, optionally from Cityweft instead —
+ * see `osm/cityweftSource.ts` for why that path is still experimental and
+ * does not support the single-building highlight.
  */
 export function BlockPanel() {
   const block = useAppStore((s) => s.block);
   const setBlockRadius = useAppStore((s) => s.setBlockRadius);
+  const setBlockSource = useAppStore((s) => s.setBlockSource);
   const setBlockCenter = useAppStore((s) => s.setBlockCenter);
   const setHighlightBuilding = useAppStore((s) => s.setHighlightBuilding);
   const clearBlock = useAppStore((s) => s.clearBlock);
   const setStatus = useAppStore((s) => s.setStatus);
 
   const [busy, setBusy] = useState(false);
+
+  const isCityweft = block.source === 'cityweft';
+  const buildingCount = isCityweft ? block.cityweftBuildings.length : block.footprints.length;
 
   const highlighted = block.footprints.find(
     (f) =>
@@ -507,12 +517,21 @@ export function BlockPanel() {
   );
 
   const exportBlock = (kind: 'highlight-stl' | 'rest-stl' | 'glb') => {
-    if (!block.center || block.footprints.length === 0) return;
+    if (!block.center || buildingCount === 0) return;
     setBusy(true);
     try {
-      const mesh = buildBlockMesh(block.footprints, block.center, block.highlightOsm);
       const base = `block-${block.center.lat.toFixed(4)}-${block.center.lon.toFixed(4)}`;
 
+      if (isCityweft) {
+        // No highlight split for Cityweft yet — "rest" and "glb" both mean
+        // "the whole block" here.
+        const { group } = buildCityweftBlockMesh(block.cityweftBuildings);
+        if (kind === 'rest-stl') downloadStl(exportStl(group), `${base}-cityweft`);
+        else if (kind === 'glb') void exportGlb(group).then((glb) => downloadGlb(glb, base));
+        return;
+      }
+
+      const mesh = buildBlockMesh(block.footprints, block.center, block.highlightOsm);
       if (kind === 'highlight-stl') {
         if (!mesh.highlighted) {
           setStatus({ kind: 'info', text: 'Click a building on the globe to single it out first.' });
@@ -529,14 +548,45 @@ export function BlockPanel() {
     }
   };
 
+  const switchSource = (source: BlockSource) => {
+    setBlockSource(source);
+    if (block.center) void setBlockCenter(block.center);
+  };
+
   return (
     <section className="panel">
       <h2>Block model</h2>
       <p className="hint">
-        Click the globe to centre a block, then click one building in it to single that
-        building out. Export gives you two STL files — the highlighted building and the
-        rest of the block — so a printer can run them in different colours.
+        Click the globe to centre a block{isCityweft ? '.' : ', then click one building in it to single that building out.'}{' '}
+        {isCityweft
+          ? 'Export gives one STL covering the whole block.'
+          : 'Export gives you two STL files — the highlighted building and the rest of the block — so a printer can run them in different colours.'}
       </p>
+
+      {config.cityweftEnabled ? (
+        <div className="segmented">
+          <button
+            className={block.source === 'overpass' ? 'active' : ''}
+            onClick={() => switchSource('overpass')}
+          >
+            Overpass / OSM
+          </button>
+          <button
+            className={block.source === 'cityweft' ? 'active' : ''}
+            onClick={() => switchSource('cityweft')}
+          >
+            Cityweft (experimental)
+          </button>
+        </div>
+      ) : null}
+
+      {isCityweft ? (
+        <p className="hint">
+          Cityweft support is unverified against a real response (see code comments in
+          <code> osm/cityweftSource.ts</code>) — check the building count and shape below
+          look right before trusting an export.
+        </p>
+      ) : null}
 
       <label className="axis-row">
         <span>Radius (m)</span>
@@ -562,41 +612,47 @@ export function BlockPanel() {
             {block.center.lat.toFixed(5)}, {block.center.lon.toFixed(5)}
           </dd>
           <dt>Buildings</dt>
-          <dd>{block.footprints.length}</dd>
-          <dt>Singled out</dt>
-          <dd>
-            {highlighted
-              ? highlighted.tags['name'] ?? `${highlighted.osm.type}/${highlighted.osm.id}`
-              : 'none yet'}
-          </dd>
+          <dd>{buildingCount}</dd>
+          {isCityweft ? null : (
+            <>
+              <dt>Singled out</dt>
+              <dd>
+                {highlighted
+                  ? highlighted.tags['name'] ?? `${highlighted.osm.type}/${highlighted.osm.id}`
+                  : 'none yet'}
+              </dd>
+            </>
+          )}
         </dl>
       ) : (
         <p className="hint">No area picked yet.</p>
       )}
 
-      {block.center && block.footprints.length > 0 ? (
+      {block.center && buildingCount > 0 ? (
         <div className="block-preview">
           <BlockView />
         </div>
       ) : null}
 
-      {block.highlightOsm ? (
+      {!isCityweft && block.highlightOsm ? (
         <button className="link" onClick={() => setHighlightBuilding(null)}>
           Clear singled-out building
         </button>
       ) : null}
 
       <div className="button-row">
-        <button
-          onClick={() => exportBlock('highlight-stl')}
-          disabled={busy || !block.highlightOsm}
-        >
-          Export highlighted (STL)
-        </button>
+        {isCityweft ? null : (
+          <button
+            onClick={() => exportBlock('highlight-stl')}
+            disabled={busy || !block.highlightOsm}
+          >
+            Export highlighted (STL)
+          </button>
+        )}
         <button
           className="secondary"
           onClick={() => exportBlock('rest-stl')}
-          disabled={busy || block.footprints.length === 0}
+          disabled={busy || buildingCount === 0}
         >
           Export block (STL)
         </button>
@@ -604,7 +660,7 @@ export function BlockPanel() {
       <button
         className="secondary"
         onClick={() => exportBlock('glb')}
-        disabled={busy || block.footprints.length === 0}
+        disabled={busy || buildingCount === 0}
       >
         Export preview (GLB)
       </button>

@@ -1,44 +1,66 @@
 /**
- * Preview of the block model: base plate + every building in the area, with
- * the singled-out building in its accent colour. A separate Three.js scene
- * for the same reason `EditorView` is — a clean local origin at a scale where
- * OrbitControls behaves, rather than reusing Cesium's globe-scale renderer.
+ * Preview of the block model: base plate + every building in the area. With
+ * `block.source === 'overpass'` the singled-out building renders in its
+ * accent colour (`buildBlockMesh`); with `'cityweft'` there is no highlight
+ * split yet (`buildCityweftBlockMesh` — see `osm/cityweftSource.ts` for why).
+ * A separate Three.js scene for the same reason `EditorView` is — a clean
+ * local origin at a scale where OrbitControls behaves, rather than reusing
+ * Cesium's globe-scale renderer.
  *
  * Unlike `EditorView` there is nothing to drag here: the model is built
- * straight from `buildBlockMesh` and only ever looked at.
+ * straight from the store and only ever looked at.
  */
 
 import { Suspense, useEffect, useMemo } from 'react';
 import { Canvas } from '@react-three/fiber';
 import { Grid, OrbitControls } from '@react-three/drei';
-import { Mesh } from 'three';
+import { Mesh, type Object3D } from 'three';
 import { buildBlockMesh } from '../mesh/buildBlockMesh.js';
+import { buildCityweftBlockMesh } from '../mesh/buildCityweftBlockMesh.js';
 import { useAppStore } from '../state/store.js';
+
+function disposeGroup(group: Object3D | null | undefined): void {
+  group?.traverse((object) => {
+    if (object instanceof Mesh) {
+      object.geometry.dispose();
+      if (!Array.isArray(object.material)) object.material.dispose();
+    }
+  });
+}
 
 export function BlockView() {
   const block = useAppStore((s) => s.block);
 
-  const mesh = useMemo(() => {
-    if (!block.center || block.footprints.length === 0) return null;
+  const overpassMesh = useMemo(() => {
+    if (block.source !== 'overpass' || !block.center || block.footprints.length === 0) {
+      return null;
+    }
     return buildBlockMesh(block.footprints, block.center, block.highlightOsm);
-  }, [block.center, block.footprints, block.highlightOsm]);
+  }, [block.source, block.center, block.footprints, block.highlightOsm]);
 
-  // `mesh.rest`/`mesh.highlighted` own the only non-cloned references to each
-  // geometry and material; disposing via them each time the block is rebuilt
-  // keeps switching radius or highlight from leaking GPU buffers.
+  const cityweftMesh = useMemo(() => {
+    if (block.source !== 'cityweft' || block.cityweftBuildings.length === 0) return null;
+    return buildCityweftBlockMesh(block.cityweftBuildings);
+  }, [block.source, block.cityweftBuildings]);
+
+  // `overpassMesh.rest`/`.highlighted` and `cityweftMesh.group` own the only
+  // non-cloned references to each geometry and material; disposing via them
+  // each time the block is rebuilt keeps switching radius, source, or
+  // highlight from leaking GPU buffers.
   useEffect(() => {
-    if (!mesh) return;
+    if (!overpassMesh) return;
     return () => {
-      for (const group of [mesh.rest, mesh.highlighted]) {
-        group?.traverse((object) => {
-          if (object instanceof Mesh) {
-            object.geometry.dispose();
-            if (!Array.isArray(object.material)) object.material.dispose();
-          }
-        });
-      }
+      disposeGroup(overpassMesh.rest);
+      disposeGroup(overpassMesh.highlighted);
     };
-  }, [mesh]);
+  }, [overpassMesh]);
+
+  useEffect(() => {
+    if (!cityweftMesh) return;
+    return () => disposeGroup(cityweftMesh.group);
+  }, [cityweftMesh]);
+
+  const preview = overpassMesh?.preview ?? cityweftMesh?.group ?? null;
 
   return (
     <Canvas
@@ -63,7 +85,7 @@ export function BlockView() {
       />
 
       <Suspense fallback={null}>
-        {mesh ? <primitive object={mesh.preview} /> : null}
+        {preview ? <primitive object={preview} /> : null}
       </Suspense>
 
       <OrbitControls makeDefault enableDamping dampingFactor={0.1} maxDistance={2000} />
