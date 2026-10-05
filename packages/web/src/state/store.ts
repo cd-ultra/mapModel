@@ -25,6 +25,7 @@ import { OSM_ATTRIBUTION, bboxAroundPoint } from '@gme/shared';
 import { config } from '../config.js';
 import { createFootprintSource, type FootprintSource } from '../osm/footprintSource.js';
 import { fetchAreaFootprints } from '../osm/areaFootprintSource.js';
+import { fetchCityweftBlock, type CityweftBuilding } from '../osm/cityweftSource.js';
 import { buildExtrusion } from '../mesh/extrude.js';
 import { operationFromWidget, replayOperations } from '../editor/csg.js';
 import {
@@ -73,18 +74,32 @@ export interface PlacedModel {
 }
 
 /** State for the "block model" workflow: an area of buildings with one singled out. */
+/** Where block-model footprint/geometry data comes from. */
+export type BlockSource = 'overpass' | 'cityweft';
+
 export interface BlockState {
+  source: BlockSource;
   center: LonLatAlt | null;
   radiusM: number;
   footprints: BuildingFootprint[];
   highlightOsm: OsmRef | null;
+  /**
+   * Set only when `source === 'cityweft'`. Kept separate from `footprints`
+   * rather than converted to `BuildingFootprint` because Cityweft gives full
+   * 3D mesh geometry directly — there is no 2D footprint to re-extrude, and
+   * (per `osm/cityweftSource.ts`) no confirmed per-building id to highlight
+   * by, so the block-model UI treats this as a single ungrouped block.
+   */
+  cityweftBuildings: CityweftBuilding[];
 }
 
 const DEFAULT_BLOCK: BlockState = {
+  source: 'overpass',
   center: null,
   radiusM: 120,
   footprints: [],
   highlightOsm: null,
+  cityweftBuildings: [],
 };
 
 const IDENTITY_EDIT: EditState = {
@@ -143,6 +158,7 @@ interface AppState {
   removePlacedModel: (id: string) => void;
 
   setBlockRadius: (radiusM: number) => void;
+  setBlockSource: (source: BlockSource) => void;
   setBlockCenter: (center: LonLatAlt) => Promise<void>;
   setHighlightBuilding: (ref: OsmRef | null) => void;
   clearBlock: () => void;
@@ -388,20 +404,46 @@ export const useAppStore = create<AppState>((set, get) => {
 
     setBlockRadius: (radiusM) => set({ block: { ...get().block, radiusM } }),
 
+    setBlockSource: (source) =>
+      set({
+        block: { ...get().block, source, footprints: [], cityweftBuildings: [], highlightOsm: null },
+      }),
+
     /**
-     * Re-centre the block area and refetch every building footprint inside
-     * it. Any building highlighted under the old centre is dropped — it is
-     * likely no longer even in view.
+     * Re-centre the block area and refetch every building in it. Any
+     * building highlighted under the old centre is dropped — it is likely
+     * no longer even in view.
      */
     setBlockCenter: async (center) => {
-      const radiusM = get().block.radiusM;
+      const { radiusM, source } = get().block;
       set({
-        block: { ...get().block, center, footprints: [], highlightOsm: null },
+        block: { ...get().block, center, footprints: [], cityweftBuildings: [], highlightOsm: null },
         status: { kind: 'busy', text: `Fetching buildings within ${radiusM} m…` },
       });
 
+      const bbox = bboxAroundPoint(center, radiusM);
+
       try {
-        const bbox = bboxAroundPoint(center, radiusM);
+        if (source === 'cityweft') {
+          const polygon: Array<[number, number]> = [
+            [bbox.west, bbox.south],
+            [bbox.east, bbox.south],
+            [bbox.east, bbox.north],
+            [bbox.west, bbox.north],
+            [bbox.west, bbox.south],
+          ];
+          const result = await fetchCityweftBlock({ polygon, apiKey: config.cityweftApiKey });
+
+          set({
+            block: { ...get().block, cityweftBuildings: result.buildings },
+            status: {
+              kind: 'info',
+              text: `Found ${result.buildings.length} building${result.buildings.length === 1 ? '' : 's'} from Cityweft (experimental — verify against the area before trusting this).`,
+            },
+          });
+          return;
+        }
+
         const results = await fetchAreaFootprints({ bbox });
         const footprints = results.map((r) => r.footprint);
 

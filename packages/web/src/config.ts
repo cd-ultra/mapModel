@@ -17,6 +17,13 @@ export interface AppConfig {
   apiBaseUrl: string;
   /** Whether ion-backed assets can be used at all. */
   ionEnabled: boolean;
+  /**
+   * Cityweft API key (starts `cw_`). Empty means "not configured" — the block
+   * model's data-source picker then only offers Overpass, which needs no key.
+   * See `osm/cityweftSource.ts` for why this is still experimental.
+   */
+  cityweftApiKey: string;
+  cityweftEnabled: boolean;
 }
 
 function readNumber(value: string | undefined, fallback: number): number {
@@ -31,5 +38,9 @@ export const config: AppConfig = {
   apiBaseUrl: import.meta.env.VITE_API_BASE_URL ?? '',
   get ionEnabled() {
     return this.ionToken.length > 0;
+  },
+  cityweftApiKey: import.meta.env.VITE_CITYWEFT_API_KEY ?? '',
+  get cityweftEnabled() {
+    return this.cityweftApiKey.length > 0;
   },
 };
